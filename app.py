@@ -6,6 +6,7 @@ Predictions are statistical model estimates, NOT guarantees and NOT calibrated w
 from __future__ import annotations
 
 import datetime as dt
+import json
 import math
 import time
 from typing import Dict, List, Optional, Tuple
@@ -792,6 +793,33 @@ section[data-testid="stSidebar"]{background:linear-gradient(180deg,#0b1024,#120a
 h2,h3{font-family:'Orbitron',sans-serif;color:#9bd8ff;letter-spacing:.06em}
 .note{border-left:3px solid #b14dff;background:rgba(177,77,255,.08);padding:.5rem .8rem;border-radius:6px;font-size:.82rem;color:#c9d6f5}
 button[data-baseweb="tab"]{font-family:'Orbitron',sans-serif;font-size:.72rem}
+
+.stApp,.stApp p,.stApp li,.stApp label,.stApp span,.stApp [data-testid="stWidgetLabel"] *,.stApp [data-testid="stCaptionContainer"] *,.stApp summary{color:#eaf4ff !important}
+.stApp .asz-title{-webkit-text-fill-color:transparent}
+.stApp .card .lbl{color:#9fb0d8 !important}.stApp .card .val{color:#00f0ff !important}.stApp .card.buy .val{color:#00e676 !important}.stApp .card.sell .val{color:#ff1744 !important}.stApp .card.wait .val,.stApp .card.warn .val{color:#ffd54f !important}.stApp .card .sub{color:#c3d1f0 !important}
+div[data-baseweb="select"]>div,div[data-baseweb="input"]>div{background:#0f1630 !important;border:1px solid #2a3a7a !important}
+div[data-baseweb="select"] *,input{color:#ffffff !important}
+ul[role="listbox"],li[role="option"],div[data-baseweb="popover"] *{background:#0f1630 !important;color:#ffffff !important}
+li[role="option"]:hover{background:#1c2a66 !important}
+button[data-baseweb="tab"]{color:#bcd0ff !important} button[data-baseweb="tab"][aria-selected="true"]{color:#00f0ff !important}
+pre,code{background:#0b1024 !important;color:#cfe8ff !important}
+details{background:rgba(15,22,48,.7);border:1px solid #243069 !important;border-radius:10px}
+.stButton>button{width:100%;background:#14204a;color:#fff !important;border:1px solid #2a3a7a;border-radius:10px}
+.stButton>button[kind="primary"],.stButton>button[data-testid="stBaseButton-primary"]{background:linear-gradient(90deg,#00c3ff,#7b2ff7);border:0;font-family:'Orbitron',sans-serif;font-size:1.15rem;letter-spacing:.12em;padding:.85rem;box-shadow:0 0 22px rgba(0,240,255,.55);animation:pulse 1.6s infinite}
+@keyframes pulse{50%{box-shadow:0 0 38px rgba(177,77,255,.9)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pop{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
+.card{animation:pop .5s ease-out}
+.scan{text-align:center;padding:1.4rem;border:1px solid #243069;border-radius:14px;background:rgba(10,14,30,.85);margin:.6rem 0}
+.ring{width:70px;height:70px;margin:0 auto 12px;border-radius:50%;border:4px solid transparent;border-top-color:#00f0ff;border-right-color:#b14dff;animation:spin .9s linear infinite}
+.scan-txt{color:#00f0ff;font-family:'Orbitron',sans-serif;letter-spacing:.08em}
+.scan-sub{color:#9fb0d8;font-size:.75rem}
+.bar{height:8px;background:#14204a;border-radius:6px;overflow:hidden;margin:12px auto;max-width:520px}
+.fill{height:100%;background:linear-gradient(90deg,#00f0ff,#b14dff);box-shadow:0 0 12px #00f0ff;transition:width .4s}
+.tblwrap{overflow:auto;border:1px solid #243069;border-radius:10px;margin:.4rem 0}
+table.asz-tbl{width:100%;border-collapse:collapse;font-size:.82rem}
+table.asz-tbl th{background:#14204a;color:#00f0ff !important;text-align:left;padding:6px 10px;position:sticky;top:0}
+table.asz-tbl td{color:#eaf4ff !important;padding:5px 10px;border-bottom:1px solid #1b2757;background:rgba(10,14,30,.7)}
 </style>
 """
 
@@ -869,6 +897,12 @@ def make_chart(df: pd.DataFrame, n_show: int, title: str):
     return fig
 
 
+def show_df(d: pd.DataFrame, height: int = 0) -> None:
+    html = d.to_html(index=False, border=0, na_rep="-", classes="asz-tbl")
+    style = f' style="max-height:{height}px"' if height else ""
+    st.markdown(f'<div class="tblwrap"{style}>{html}</div>', unsafe_allow_html=True)
+
+
 def safe(label: str, fn, *args) -> None:
     try:
         fn(*args)
@@ -880,15 +914,27 @@ def safe(label: str, fn, *args) -> None:
 # ----------------------------------------------------------------------------
 # Sections
 # ----------------------------------------------------------------------------
-def analyze(df: pd.DataFrame) -> dict:
+def anim_html(msg: str, pct: int) -> str:
+    return (f'<div class="scan"><div class="ring"></div><div class="scan-txt">{msg}</div>'
+            f'<div class="bar"><div class="fill" style="width:{pct}%"></div></div>'
+            f'<div class="scan-sub">ASZ NEURAL ENGINE - {pct}%</div></div>')
+
+
+def run_analysis(df: pd.DataFrame, ph) -> dict:
     T = len(df)
     if T < MIN_BARS:
         raise ValueError(f"Insufficient candle history: {T} bars (need >= {MIN_BARS}). Try a shorter timeframe.")
     split = WARM + int(0.65 * (T - 1 - WARM))
     ctx: dict = {"split": split, "T": T}
-    for key, fn in (("lab", run_lab), ("ml", run_ml)):
-        v, e = try_call(fn, df, split, WARM)
-        ctx[key], ctx[key + "_err"] = v, e
+    ph.markdown(anim_html("Scanning thousands of indicator configurations...", 25), unsafe_allow_html=True)
+    ctx["lab"], ctx["lab_err"] = try_call(run_lab, df, split, WARM)
+    time.sleep(0.4)
+    ph.markdown(anim_html("Training AI models on chronological history...", 60), unsafe_allow_html=True)
+    ctx["ml"], ctx["ml_err"] = try_call(run_ml, df, split, WARM)
+    time.sleep(0.4)
+    ph.markdown(anim_html("Blending BUY / SELL probability...", 92), unsafe_allow_html=True)
+    time.sleep(0.5)
+    ph.empty()
     return ctx
 
 
@@ -928,7 +974,7 @@ def section_prediction(df: pd.DataFrame, ctx: dict, tf: str, symbol: str, thr: f
             st.write(f"Top ML features: {', '.join(ml['importance'].head(6).index)}")
             st.write(f"Validation: accuracy {ml['acc'] * 100:.2f}% vs majority baseline {ml['base_acc'] * 100:.2f}%, Brier {ml['brier']:.4f} (0.25 = coin flip), "
                      f"log-loss {ml['logloss']:.4f} (0.693 = coin flip), z={ml['z']:.2f}, train n={ml['n_train']}, test n={ml['n_test']}.")
-            st.dataframe(ml["calibration"].round(3), hide_index=True)
+            show_df(ml["calibration"].round(3))
     mtf = []
     for lab_tf in ("5 Minutes", "15 Minutes"):
         d2, e2 = try_call(get_candles, symbol, lab_tf)
@@ -939,7 +985,7 @@ def section_prediction(df: pd.DataFrame, ctx: dict, tf: str, symbol: str, thr: f
         else:
             mtf.append({"Timeframe": lab_tf, "Trend": f"unavailable ({e2})", "RSI14": None})
     st.caption("Multi-timeframe confirmation (display only; not part of the probability):")
-    st.dataframe(pd.DataFrame(mtf), hide_index=True)
+    show_df(pd.DataFrame(mtf))
 
 
 def section_technical(df: pd.DataFrame, symbol: str) -> None:
@@ -952,7 +998,7 @@ def section_technical(df: pd.DataFrame, symbol: str) -> None:
     c[1].markdown(card("Volatility (ATR14)", f"{info['atr'] / pip(symbol):.1f} pips", f"{info['atr'] / px * 1e4:.1f} bps"), unsafe_allow_html=True)
     c[2].markdown(card("Nearest support", f"{sup:.{dd}f}", "confirmed swing low (display only)"), unsafe_allow_html=True)
     c[3].markdown(card("Nearest resistance", f"{res:.{dd}f}", "confirmed swing high (display only)"), unsafe_allow_html=True)
-    st.dataframe(t, hide_index=True)
+    show_df(t)
     pats = candle_patterns(df["open"], df["high"], df["low"], df["close"])
     found = [f"{n}: {'bullish' if v[0][-1] else 'bearish'}" for n, v in pats.items() if v[0][-1] or v[1][-1]]
     st.write("**Candlestick analysis (last closed candle):** " + (", ".join(found) if found else "no pattern detected"))
@@ -985,11 +1031,11 @@ def section_lab(ctx: dict) -> None:
                 f'With thousands of configurations, the best in-sample results are partly luck (multiple-comparison bias): only {lab["pct_oos_above_50"]:.1f}% of eligible configurations beat 50% out-of-sample. '
                 f'Computed in {lab["elapsed"]:.1f}s and cached.</div>', unsafe_allow_html=True)
     st.subheader("Top 150 by in-sample rank (with out-of-sample result)")
-    st.dataframe(lab["top"].round(2), hide_index=True)
+    show_df(lab["top"].round(2), 480)
     st.subheader("Configurations used by the prediction engine")
-    st.write(lab["sel_names"])
+    st.code("\n".join(lab["sel_names"]))
     st.subheader("Family comparison")
-    st.dataframe(lab["families"].round(2), hide_index=True)
+    show_df(lab["families"].round(2))
 
 
 def section_backtest(df: pd.DataFrame, ctx: dict, thr: float, spread: float, symbol: str) -> None:
@@ -1011,7 +1057,7 @@ def section_backtest(df: pd.DataFrame, ctx: dict, thr: float, spread: float, sym
         rows.append({"Strategy": name, "Test bars": r["bars"], "Signals": r["signals"], "No-trade": r["no_trade"], "BUY": r["buys"], "SELL": r["sells"],
                      "Directional hit % (gross)": r["hit_rate"], "Net win % (after spread)": r["net_win_rate"], "Wins": r["wins"], "Losses": r["losses"],
                      "Profit factor": r["profit_factor"], "Total return (bps)": r["total_bps"], "Max drawdown (bps)": r["max_dd_bps"]})
-    st.dataframe(pd.DataFrame(rows).round(2), hide_index=True)
+    show_df(pd.DataFrame(rows).round(2))
     best = res.get("Combined (ML + indicators)")
     if best is not None and len(best["eq"]):
         eq = pd.DataFrame({"Equity (bps, non-compounded)": best["eq"]}, index=df["time"].iloc[best["t"] + 1].values)
@@ -1045,7 +1091,7 @@ def section_watchlist(symbols: List[str]) -> None:
         rows.append({"Pair": s, "Bid": t["bid"], "Ask": t["ask"], "Mid": t["mid"], "Spread (pips)": (t["spread"] or 0) / pip(s),
                      "Day %": t["dayDiffPercent"] if t["marketState"] == "open" else None, "Market": t["marketState"],
                      "Age (s)": age, "Fresh": "no" if (t["stale"] or (age or 0) > 60) else "yes"})
-    st.dataframe(pd.DataFrame(rows), hide_index=True)
+    show_df(pd.DataFrame(rows))
 
 
 def section_system(df: Optional[pd.DataFrame], ctx: Optional[dict], sym_err: Optional[str], df_err: Optional[str]) -> None:
@@ -1064,11 +1110,11 @@ def section_system(df: Optional[pd.DataFrame], ctx: Optional[dict], sym_err: Opt
     ml = (ctx or {}).get("ml")
     c[2].markdown(card("ML model", "READY" if ml and ml.get("ok") else "OFF", (ml or {}).get("msg", (ctx or {}).get("ml_err", "")) or ""), unsafe_allow_html=True)
     c[3].markdown(card("Candles", f"{len(df) if df is not None else 0}", df_err or (f"last {df['time'].iloc[-1]:%Y-%m-%d %H:%M} UTC" if df is not None and len(df) else "")), unsafe_allow_html=True)
-    st.write({p: ver(p) for p in ("streamlit", "pandas", "numpy", "requests", "plotly", "scikit-learn")})
+    show_df(pd.DataFrame({"Package": p, "Version": ver(p)} for p in ("streamlit", "pandas", "numpy", "requests", "plotly", "scikit-learn")))
     if sym_err:
         st.warning(f"Symbol discovery failed ({sym_err}); using built-in major-pair list. Quotes are still fetched live.")
     if h is not None:
-        st.json(h)
+        st.code(json.dumps(h, indent=2, default=str))
     st.subheader("Error diagnostics")
     st.code("\n".join(st.session_state.get("diag", [])) or "no errors logged")
 
@@ -1107,24 +1153,36 @@ def main() -> None:
         live_panel(symbol)
 
     df, df_err = try_call(get_candles, symbol, tf)
-    ctx, spread = None, 0.0
+    if df is not None and len(df) < 60:
+        df_err, df = f"Only {len(df)} complete {tf} candles available", None
     tk, _ = try_call(fetch_tick, symbol)
-    if tk and tk.get("spread"):
-        spread = float(tk["spread"])
-    if df is not None:
-        if len(df) < 60:
-            df_err = f"Only {len(df)} complete {tf} candles available"
-            df = None
+    spread = float(tk["spread"]) if tk and tk.get("spread") else 0.0
     if df is None:
         st.error(f"Candle data unavailable: {df_err}")
-    else:
-        ctx, e = try_call(analyze, df)
-        if e:
-            st.warning(e)
 
     st.subheader("B. AI prediction")
-    if df is not None and ctx is not None:
-        safe("AI prediction", section_prediction, df, ctx, tf, symbol, thr)
+    clicked = st.button("⚡ ANALYZE", type="primary", key="analyze")
+    ph = st.empty()
+    if clicked:
+        if df is None:
+            st.error("Cannot analyze: no candle data.")
+        else:
+            try:
+                ctx_new = run_analysis(df, ph)
+                st.session_state["res"] = {"symbol": symbol, "tf": tf, "df": df, "ctx": ctx_new}
+            except Exception as e:  # noqa: BLE001
+                ph.empty()
+                log(f"analysis error: {e}")
+                st.error(f"Analysis failed: {e}")
+    res = st.session_state.get("res")
+    ok = bool(res and res["symbol"] == symbol and res["tf"] == tf)
+    adf, ctx = (res["df"], res["ctx"]) if ok else (None, None)
+    if ok:
+        safe("AI prediction", section_prediction, adf, ctx, tf, symbol, thr)
+    elif res:
+        st.info("Pair or timeframe changed - press ANALYZE for a fresh BUY/SELL estimate.")
+    else:
+        st.info("Press ANALYZE to scan indicators, train the models and see the BUY / SELL probability.")
 
     tabs = st.tabs(["C. Technical", "Chart", "D. Indicator Lab", "E. Backtesting", "F. Watchlist", "G. System"])
     with tabs[0]:
@@ -1134,11 +1192,15 @@ def main() -> None:
         if df is not None:
             safe("Chart", section_chart, df, symbol, tf)
     with tabs[2]:
-        if ctx is not None:
+        if ok:
             safe("Indicator lab", section_lab, ctx)
+        else:
+            st.info("Press ANALYZE first.")
     with tabs[3]:
-        if df is not None and ctx is not None:
-            safe("Backtesting", section_backtest, df, ctx, thr, spread, symbol)
+        if ok:
+            safe("Backtesting", section_backtest, adf, ctx, thr, spread, symbol)
+        else:
+            st.info("Press ANALYZE first.")
     with tabs[4]:
         safe("Watchlist", section_watchlist, names)
     with tabs[5]:
